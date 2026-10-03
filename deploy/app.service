@@ -6,7 +6,6 @@ After=network.target
 Type=simple
 User=sdlc-app
 Group=sdlc-app
-WorkingDirectory=/opt/sdlc-demo/current
 EnvironmentFile=-/etc/sdlc-demo/app.env
 ExecStart=/usr/bin/node /opt/sdlc-demo/current/src/server.js
 Restart=on-failure
