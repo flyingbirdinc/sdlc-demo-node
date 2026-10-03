@@ -1,0 +1,75 @@
+name: Independent AI Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+  id-token: write
+
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  ai-review:
+    if: github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.event.pull_request.head.ref, 'ai/') && vars.AI_SDLC_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_AI_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_AI_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Review diff with Vertex AI
+        env:
+          PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          LOCATION: ${{ vars.VERTEX_LOCATION }}
+          MODEL: ${{ vars.VERTEX_REVIEW_MODEL }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          git diff --unified=80 "origin/main...HEAD" > /tmp/pr.diff
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess, urllib.request
+          diff = pathlib.Path('/tmp/pr.diff').read_text()
+          changed = subprocess.check_output(['git','diff','--name-only','origin/main...HEAD'], text=True).splitlines()
+          sensitive = any(p.startswith(('.github/workflows/', '.github/ai-sdlc/', 'orchestrator/', 'deploy/')) or p in ('scripts/deploy.sh','scripts/rollback.sh') for p in changed)
+          schema = {'type':'OBJECT','properties':{'verdict':{'type':'STRING','enum':['approve','request_changes']},'summary':{'type':'STRING'},'findings':{'type':'ARRAY','items':{'type':'OBJECT','properties':{'severity':{'type':'STRING'},'path':{'type':'STRING'},'line':{'type':'INTEGER'},'message':{'type':'STRING'}},'required':['severity','path','line','message']}}},'required':['verdict','summary','findings']}
+          prompt = pathlib.Path('.github/ai-sdlc/reviewer-system-prompt.md').read_text() + '\n\nDeterministic sensitive-path flag: ' + str(sensitive) + '\nChanged paths: ' + json.dumps(changed) + '\n<diff>\n' + diff[:120000] + '\n</diff>'
+          body = json.dumps({'contents':[{'role':'user','parts':[{'text':prompt}]}], 'generationConfig':{'responseMimeType':'application/json','responseSchema':schema,'maxOutputTokens':4000}}).encode()
+          url = f"https://{os.environ['LOCATION']}-aiplatform.googleapis.com/v1/projects/{os.environ['PROJECT_ID']}/locations/{os.environ['LOCATION']}/publishers/google/models/{os.environ['MODEL']}:generateContent"
+          req = urllib.request.Request(url, data=body, headers={'content-type':'application/json'}, method='POST')
+          with urllib.request.urlopen(req, timeout=120) as response:
+              data = json.load(response)
+          text = ''.join(p.get('text','') for p in data['candidates'][0]['content']['parts'])
+          verdict = json.loads(text)
+          if sensitive and verdict.get('verdict') == 'approve':
+              verdict['verdict'] = 'request_changes'
+              verdict['findings'].append({'severity':'major','path':'(sensitive path)','line':1,'message':'Sensitive path changes require explicit follow-up review.'})
+          pathlib.Path('/tmp/verdict.json').write_text(json.dumps(verdict))
+          if verdict.get('verdict') != 'approve' or any(f.get('severity') in ('blocker','major') for f in verdict.get('findings', [])):
+              raise SystemExit('AI review requested changes: ' + verdict.get('summary',''))
+          PY
+      - name: Comment review result
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          if test -f /tmp/verdict.json; then body=$(python3 -c 'import json; v=json.load(open("/tmp/verdict.json")); print("### Independent AI review\\n\\n" + v["summary"] + "\\n\\n" + "\\n".join(f"- **{x[\"severity\"]}** `{x[\"path\"]}:{x[\"line\"]}` — {x[\"message\"]}" for x in v["findings"]))'); else body='### Independent AI review\n\nReview failed closed. Inspect the workflow log.'; fi
+          gh pr comment "$PR_NUMBER" --repo "$REPOSITORY" --body "$body"

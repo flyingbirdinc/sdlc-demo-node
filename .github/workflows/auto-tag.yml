@@ -1,0 +1,35 @@
+name: Automatic AI Release Tag
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ai-release-tag
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'ai-generated') && startsWith(github.event.pull_request.head.ref, 'ai/') && vars.AI_SDLC_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+      - name: Create next patch tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest=$(git tag --list 'v*.*.*' --sort=-version:refname | head -1)
+          if git tag --points-at HEAD | grep -q '^v'; then exit 0; fi
+          if [ -z "$latest" ]; then next=v1.0.0; else
+            LATEST="$latest" python3 -c 'import os; v=os.environ["LATEST"][1:].split("."); print("v%d.%d.%d"%(int(v[0]),int(v[1]),int(v[2])+1))' > /tmp/next-tag
+            next=$(cat /tmp/next-tag)
+          fi
+          git tag "$next" HEAD
+          git push origin "$next"

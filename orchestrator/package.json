@@ -1,0 +1,14 @@
+{
+  "name": "sdlc-demo-orchestrator",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/worker.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@google-cloud/vertexai": "^1.10.0",
+    "octokit": "^4.1.2"
+  }
+}
