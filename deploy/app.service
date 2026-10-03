@@ -1,0 +1,21 @@
+[Unit]
+Description=SDLC Demo Node application
+After=network.target
+
+[Service]
+Type=simple
+User=sdlc-app
+Group=sdlc-app
+WorkingDirectory=/opt/sdlc-demo/current
+EnvironmentFile=-/etc/sdlc-demo/app.env
+ExecStart=/usr/bin/node /opt/sdlc-demo/current/src/server.js
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/sdlc-demo
+
+[Install]
+WantedBy=multi-user.target

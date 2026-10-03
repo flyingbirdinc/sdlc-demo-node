@@ -1,0 +1,16 @@
+{
+  "name": "sdlc-demo-node",
+  "version": "1.0.0",
+  "description": "A minimal Node.js application demonstrating a complete SDLC flow.",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test",
+    "check": "node --check src/server.js && node --check test/server.test.js"
+  },
+  "engines": {
+    "node": ">=20 <21"
+  },
+  "license": "MIT"
+}
