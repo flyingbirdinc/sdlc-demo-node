@@ -1,0 +1,23 @@
+[Unit]
+Description=SDLC AI Jira orchestrator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sdlc-ai
+Group=sdlc-ai
+WorkingDirectory=/opt/sdlc-ai/workspace/orchestrator
+EnvironmentFile=/etc/sdlc-ai/orchestrator.env
+ExecStart=/usr/bin/node /opt/sdlc-ai/workspace/orchestrator/src/worker.js
+Restart=on-failure
+RestartSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/sdlc-ai /var/lib/sdlc-ai
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
